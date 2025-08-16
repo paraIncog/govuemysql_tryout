@@ -1,36 +1,68 @@
 <template>
-	<form @submit.prevent="onSubmit" class="grid gap-3 p-4 border rounded">
-		<div class="grid gap-1">
-			<label>Name</label>
-			<input v-model="local.name" required placeholder="Jane Doe" class="border rounded p-2" />
-		</div>
-		<div class="grid gap-1">
-			<label>Email</label>
-			<input v-model="local.email" required type="email" placeholder="jane@example.com"
-				class="border rounded p-2" />
-		</div>
-		<div class="flex gap-2 mt-2">
-			<button type="submit" class="px-4 py-2 border rounded">{{ local.id ? 'Update' : 'Create' }}</button>
-			<button type="button" class="px-4 py-2 border rounded" @click="$emit('cancel')">Cancel</button>
-		</div>
-	</form>
+  <form class="card" @submit.prevent="onSubmit">
+    <h2>Create User</h2>
+
+    <label>
+      Name
+      <input v-model.trim="form.name" required placeholder="Alice Johnson" />
+    </label>
+
+    <label>
+      Email
+      <input v-model.trim="form.email" type="email" required placeholder="alice@example.com" />
+    </label>
+
+    <button :disabled="busy">Create</button>
+    <p v-if="err" class="error">{{ err }}</p>
+  </form>
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
-import type { User } from '@/types'
+import { ref } from "vue";
+import { createUser } from "@/stores/users";
 
-const props = defineProps<{ user: User | null }>()
-const emit = defineEmits<{ (e: 'save', user: User): void, (e: 'cancel'): void }>()
+const emit = defineEmits<{ (e: "save", payload: { name: string; email: string }): void }>();
 
-const local = reactive<User>({ name: '', email: '' })
-
-watch(() => props.user, (u) => {
-	if (u) Object.assign(local, u)
-	else Object.assign(local, { id: undefined, name: '', email: '' })
-}, { immediate: true })
+const form = ref({ name: "", email: "" });
+const err = ref("");
+const busy = ref(false);
 
 async function onSubmit() {
-	emit('save', { ...local })
+  try {
+    busy.value = true;
+    err.value = "";
+    await createUser({ name: form.value.name, email: form.value.email });
+    emit("save", { name: form.value.name, email: form.value.email });
+    form.value = { name: "", email: "" };
+  } catch (e: any) {
+    err.value = e.message || "Create failed";
+  } finally {
+    busy.value = false;
+  }
 }
 </script>
+
+<style scoped>
+.card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem;
+}
+label { display: block; margin-bottom: .8rem; }
+input {
+  width: 100%;
+  padding: .5rem .6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  margin-top: .25rem;
+}
+button {
+  padding: .5rem .8rem;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.error { color: #b91c1c; margin-top: .5rem; }
+</style>

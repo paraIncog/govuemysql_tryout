@@ -9,4 +9,6 @@
 
 <style>
 :root { font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif; }
+body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; }
+.container { max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
 </style>
