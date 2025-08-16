@@ -25,7 +25,6 @@ type User struct {
 func main() {
 	_ = godotenv.Load()
 
-	// Build DSN from env
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4&loc=Local",
 		getenv("DB_USER", "root"),
 		getenv("DB_PASS", "dubimin"),
@@ -34,7 +33,6 @@ func main() {
 		getenv("DB_NAME", "sample_db"),
 	)
 
-	// Connect DB
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatal(err)
@@ -45,7 +43,6 @@ func main() {
 		log.Fatal("DB connection failed:", err)
 	}
 
-	// Ensure schema
 	if err := ensureSchema(db); err != nil {
 		log.Fatal("ensure schema failed:", err)
 	}
@@ -60,7 +57,6 @@ func main() {
 		api.GET("/users", func(c *gin.Context) {
 			rows, err := db.Query(`SELECT id, name, email, created_at FROM users ORDER BY id DESC`)
 			if err != nil {
-				log.Printf("list users query error: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 				return
 			}
@@ -70,16 +66,10 @@ func main() {
 			for rows.Next() {
 				var u User
 				if err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.CreatedAt); err != nil {
-					log.Printf("list users scan error: %v", err)
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "scan failed"})
 					return
 				}
 				users = append(users, u)
-			}
-			if err := rows.Err(); err != nil {
-				log.Printf("list users rows error: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "rows failed"})
-				return
 			}
 			c.JSON(http.StatusOK, users)
 		})
@@ -94,7 +84,6 @@ func main() {
 				return
 			}
 			if err != nil {
-				log.Printf("get user error: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 				return
 			}
@@ -108,13 +97,16 @@ func main() {
 				return
 			}
 
+			// Normalize
+			in.Name = strings.TrimSpace(in.Name)
+			in.Email = strings.ToLower(strings.TrimSpace(in.Email))
+
 			res, err := db.Exec(`INSERT INTO users (name, email) VALUES (?, ?)`, in.Name, in.Email)
 			if err != nil {
 				if isDuplicate(err) {
 					c.JSON(http.StatusConflict, gin.H{"error": "Email already exists"})
 					return
 				}
-				log.Printf("create user error: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "create failed"})
 				return
 			}
@@ -123,7 +115,6 @@ func main() {
 			var out User
 			if err := db.QueryRow(`SELECT id, name, email, created_at FROM users WHERE id=?`, id).
 				Scan(&out.ID, &out.Name, &out.Email, &out.CreatedAt); err != nil {
-				log.Printf("fetch after create error: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "fetch after create failed"})
 				return
 			}
@@ -138,13 +129,16 @@ func main() {
 				return
 			}
 
+			// Normalize
+			in.Name = strings.TrimSpace(in.Name)
+			in.Email = strings.ToLower(strings.TrimSpace(in.Email))
+
 			_, err := db.Exec(`UPDATE users SET name=?, email=? WHERE id=?`, in.Name, in.Email, id)
 			if err != nil {
 				if isDuplicate(err) {
 					c.JSON(http.StatusConflict, gin.H{"error": "Email already exists"})
 					return
 				}
-				log.Printf("update user error: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "update failed"})
 				return
 			}
@@ -152,7 +146,6 @@ func main() {
 			var out User
 			if err := db.QueryRow(`SELECT id, name, email, created_at FROM users WHERE id=?`, id).
 				Scan(&out.ID, &out.Name, &out.Email, &out.CreatedAt); err != nil {
-				log.Printf("fetch after update error: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "fetch after update failed"})
 				return
 			}
@@ -163,7 +156,6 @@ func main() {
 			id := c.Param("id")
 			res, err := db.Exec(`DELETE FROM users WHERE id=?`, id)
 			if err != nil {
-				log.Printf("delete user error: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
 				return
 			}
@@ -191,12 +183,14 @@ func getenv(k, def string) string {
 }
 
 func ensureSchema(db *sql.DB) error {
+	// Create table with case-insensitive unique index
 	_, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS users (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
-  email VARCHAR(255) NOT NULL UNIQUE,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  email VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY ux_users_email_lower ((LOWER(email)))
 )`)
 	return err
 }
@@ -214,11 +208,7 @@ func cors(origin string) gin.HandlerFunc {
 	}
 }
 
-// Duplicate-key detection
 func isDuplicate(err error) bool {
 	var me *mysqlDrv.MySQLError
-	if errors.As(err, &me) {
-		return me.Number == 1062
-	}
-	return strings.Contains(strings.ToLower(err.Error()), "duplicate entry")
+	return errors.As(err, &me) && me.Number == 1062
 }

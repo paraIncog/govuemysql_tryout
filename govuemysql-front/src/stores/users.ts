@@ -6,13 +6,8 @@ const api = axios.create({
 });
 
 export async function fetchUsers(): Promise<User[]> {
-  try {
-    const { data } = await api.get<User[]>("/users");
-    return data;
-  } catch (e: any) {
-    const msg = e?.response?.data?.error ?? "Failed to fetch users";
-    throw new Error(msg);
-  }
+  const { data } = await api.get<User[]>("/users");
+  return data;
 }
 
 export async function createUser(payload: Pick<User, "name" | "email">): Promise<User> {
@@ -20,21 +15,16 @@ export async function createUser(payload: Pick<User, "name" | "email">): Promise
     const { data } = await api.post<User>("/users", payload);
     return data;
   } catch (e: any) {
-    const msg = e?.response?.data?.error ?? "Create failed";
-    throw new Error(msg);
+    throw new Error(e?.response?.data?.error ?? "Create failed");
   }
 }
 
-export async function updateUser(
-  id: number,
-  payload: Pick<User, "name" | "email">
-): Promise<User> {
+export async function updateUser(id: number, payload: Pick<User, "name" | "email">): Promise<User> {
   try {
     const { data } = await api.put<User>(`/users/${id}`, payload);
     return data;
   } catch (e: any) {
-    const msg = e?.response?.data?.error ?? "Update failed";
-    throw new Error(msg);
+    throw new Error(e?.response?.data?.error ?? "Update failed");
   }
 }
 
@@ -42,7 +32,6 @@ export async function deleteUser(id: number): Promise<void> {
   try {
     await api.delete(`/users/${id}`);
   } catch (e: any) {
-    const msg = e?.response?.data?.error ?? "Delete failed";
-    throw new Error(msg);
+    throw new Error(e?.response?.data?.error ?? "Delete failed");
   }
 }

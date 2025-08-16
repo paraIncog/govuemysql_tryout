@@ -1,17 +1,13 @@
 <template>
-  <form class="card" @submit.prevent="onSubmit">
-    <h2>Create User</h2>
-
+  <form @submit.prevent="onSubmit" class="card">
     <label>
       Name
-      <input v-model.trim="form.name" required placeholder="Alice Johnson" />
+      <input v-model="form.name" required />
     </label>
-
     <label>
       Email
-      <input v-model.trim="form.email" type="email" required placeholder="alice@example.com" />
+      <input v-model="form.email" type="email" required />
     </label>
-
     <button :disabled="busy">Create</button>
     <p v-if="err" class="error">{{ err }}</p>
   </form>
@@ -21,21 +17,21 @@
 import { ref } from "vue";
 import { createUser } from "@/stores/users";
 
-const emit = defineEmits<{ (e: "save", payload: { name: string; email: string }): void }>();
+const emit = defineEmits<{ (e: "saved"): void }>();
 
 const form = ref({ name: "", email: "" });
-const err = ref("");
 const busy = ref(false);
+const err = ref("");
 
 async function onSubmit() {
   try {
     busy.value = true;
     err.value = "";
-    await createUser({ name: form.value.name, email: form.value.email });
-    emit("save", { name: form.value.name, email: form.value.email });
+    await createUser({ ...form.value });
     form.value = { name: "", email: "" };
+    emit("saved");
   } catch (e: any) {
-    err.value = e.message || "Create failed";
+    err.value = e.message;
   } finally {
     busy.value = false;
   }
@@ -43,26 +39,6 @@ async function onSubmit() {
 </script>
 
 <style scoped>
-.card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 1rem;
-}
-label { display: block; margin-bottom: .8rem; }
-input {
-  width: 100%;
-  padding: .5rem .6rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  margin-top: .25rem;
-}
-button {
-  padding: .5rem .8rem;
-  border: 1px solid #d1d5db;
-  background: #f9fafb;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.error { color: #b91c1c; margin-top: .5rem; }
+.card { border:1px solid #ddd; padding:1rem; }
+.error { color:red; margin-top:.5rem; }
 </style>
