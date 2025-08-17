@@ -169,7 +169,7 @@ func main() {
 	}
 
 	addr := ":" + getenv("PORT", "8080")
-	log.Println("🚀 API listening on", addr)
+	log.Println("🚀 API listening on localhost", addr)
 	if err := r.Run(addr); err != nil {
 		log.Fatal(err)
 	}
@@ -184,14 +184,15 @@ func getenv(k, def string) string {
 
 func ensureSchema(db *sql.DB) error {
 	// Create table with case-insensitive unique index
-	_, err := db.Exec(`
-CREATE TABLE IF NOT EXISTS users (
-  id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(100) NOT NULL,
-  email VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY ux_users_email_lower ((LOWER(email)))
-)`)
+	_, err := db.Exec(
+		`
+			CREATE TABLE IF NOT EXISTS users (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			name VARCHAR(100) NOT NULL,
+			email VARCHAR(255) NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE KEY ux_users_email_lower ((LOWER(email)))
+		)`,)
 	return err
 }
 

@@ -10,22 +10,25 @@
       <table class="users" v-if="users.length">
         <thead>
           <tr>
-            <th>ID</th><th>Name</th><th>Email</th><th>Actions</th>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="u in users" :key="u.id">
             <td>{{ u.id }}</td>
             <td>
-              <input v-if="editId===u.id" v-model="editForm.name" />
+              <input v-if="editId === u.id" v-model="editForm.name" />
               <span v-else>{{ u.name }}</span>
             </td>
             <td>
-              <input v-if="editId===u.id" v-model="editForm.email" />
+              <input v-if="editId === u.id" v-model="editForm.email" />
               <span v-else>{{ u.email }}</span>
             </td>
             <td>
-              <template v-if="editId===u.id">
+              <template v-if="editId === u.id">
                 <button @click="saveEdit(u.id)">Save</button>
                 <button @click="cancelEdit">Cancel</button>
               </template>
@@ -50,7 +53,7 @@ import type { User } from "../types";
 
 const users = ref<User[]>([]);
 const errList = ref("");
-const editId = ref<number|null>(null);
+const editId = ref<number | null>(null);
 const editForm = ref({ name: "", email: "" });
 
 async function load() {
@@ -88,8 +91,18 @@ onMounted(load);
 </script>
 
 <style scoped>
-.card { border:1px solid #ddd; padding:1rem; margin-top:1rem; }
-.error { color:red; }
-.users { width:100%; border-collapse:collapse; }
-.users th, .users td { border:1px solid #ccc; padding:.5rem; }
+.error {
+  color: red;
+}
+
+.users {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.users th,
+.users td {
+  border: 1px solid #ccc;
+  padding: .5rem;
+}
 </style>

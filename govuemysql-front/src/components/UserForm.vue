@@ -39,6 +39,5 @@ async function onSubmit() {
 </script>
 
 <style scoped>
-.card { border:1px solid #ddd; padding:1rem; }
 .error { color:red; margin-top:.5rem; }
 </style>
