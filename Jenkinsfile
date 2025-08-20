@@ -15,15 +15,15 @@ pipeline {
   }
 
   stages {
-	stage('Sanity: Docker & Compose') {
-  steps {
-    sh '''
-      set -e
-      docker version
-      docker compose version
-    '''
-  }
-}
+// 	stage('Sanity: Docker & Compose') {
+//   steps {
+//     sh '''
+//       set -e
+//       docker version
+//       docker compose version
+//     '''
+//   }
+// }
     stage('Checkout') {
       steps {
         git branch: 'main', url: 'https://github.com/paraIncog/govuemysql_tryout.git'
