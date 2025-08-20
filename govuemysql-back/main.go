@@ -6,13 +6,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -65,155 +60,13 @@ func ensureSchema() error {
     return err
 }
 
-
-type User struct {
-	ID    int    `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
-}
-
 func main() {
 	initDB()
-	if err := ensureSchema(); err != nil {
-        log.Fatalf("schema setup failed: %v", err)
-    }
-	r := gin.Default()
-
-	r.Use(cors.New(cors.Config{
-		AllowOrigins: []string{getenv("CORS_ORIGIN", "*")},
-		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders: []string{"Origin", "Content-Type", "Accept"},
-	}))
-
-	api := r.Group("/api")
-	{
-		api.GET("/health", func(c *gin.Context) {
-			if err := db.Ping(); err != nil {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "down", "error": err.Error()})
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{"status": "ok"})
-		})
-
-		api.GET("/users", func(c *gin.Context) {
-			rows, err := db.Query("SELECT id, name, email FROM users ORDER BY id")
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			defer rows.Close()
-			var users []User
-			for rows.Next() {
-				var u User
-				if err := rows.Scan(&u.ID, &u.Name, &u.Email); err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-					return
-				}
-				users = append(users, u)
-			}
-			c.JSON(http.StatusOK, users)
-		})
-
-		api.GET("/users/:id", func(c *gin.Context) {
-			id, err := strconv.Atoi(c.Param("id"))
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-				return
-			}
-			var u User
-			err = db.QueryRow("SELECT id, name, email FROM users WHERE id = ?", id).Scan(&u.ID, &u.Name, &u.Email)
-			if err == sql.ErrNoRows {
-				c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
-				return
-			}
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			c.JSON(http.StatusOK, u)
-		})
-
-		api.POST("/users", func(c *gin.Context) {
-			var in struct {
-				Name  string `json:"name"`
-				Email string `json:"email"`
-			}
-			if err := c.ShouldBindJSON(&in); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				return
-			}
-			res, err := db.Exec("INSERT INTO users (name, email) VALUES (?, ?)", in.Name, in.Email)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			id, _ := res.LastInsertId()
-			c.JSON(http.StatusCreated, gin.H{"id": id})
-		})
-
-		api.PUT("/users/:id", func(c *gin.Context) {
-			id, err := strconv.Atoi(c.Param("id"))
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-				return
-			}
-			var in struct {
-				Name  string `json:"name"`
-				Email string `json:"email"`
-			}
-			if err := c.ShouldBindJSON(&in); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				return
-			}
-			res, err := db.Exec("UPDATE users SET name = ?, email = ? WHERE id = ?", in.Name, in.Email, id)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			aff, _ := res.RowsAffected()
-			if aff == 0 {
-				c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
-				return
-			}
-			c.Status(http.StatusNoContent)
-		})
-
-		api.DELETE("/users/:id", func(c *gin.Context) {
-			id, err := strconv.Atoi(c.Param("id"))
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-				return
-			}
-			res, err := db.Exec("DELETE FROM users WHERE id = ?", id)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			aff, _ := res.RowsAffected()
-			if aff == 0 {
-				c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
-				return
-			}
-			c.Status(http.StatusNoContent)
-		})
-	}
-
-	// Frontend
-	r.Static("/assets", "./frontend/assets")
-	r.GET("/favicon.ico", func(c *gin.Context) { c.File("./frontend/favicon.ico") })
-
-	r.NoRoute(func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-			return
-		}
-		c.File(filepath.Clean("./frontend/index.html"))
-	})
-
+	if err := ensureSchema(); err != nil { log.Fatalf("schema setup failed: %v", err) }
+	s := NewServer(db)
 	port := getenv("PORT", "8080")
-	log.Printf("🚀 Server running on :%s", port)
-	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("Server error: %v", err)
+	log.Printf("🚀 Server on :%s", port)
+	if err := http.ListenAndServe(":"+port, s.Router()); err != nil {
+		log.Fatal(err)
 	}
 }
-

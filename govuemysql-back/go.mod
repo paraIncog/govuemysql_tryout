@@ -3,6 +3,7 @@ module selge/govuemysql
 go 1.24.6
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.10.1
 	github.com/go-sql-driver/mysql v1.9.3
