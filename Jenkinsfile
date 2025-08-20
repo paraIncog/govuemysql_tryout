@@ -1,7 +1,6 @@
 pipeline {
   agent any
 
-  environment {
     environment {
   REGISTRY       = "registry.example.com"  // for Docker Hub you can use "docker.io" or leave images as USER/REPO/...
   PROJECT        = "myapp"                 // namespace/repo prefix you want
@@ -10,8 +9,6 @@ pipeline {
   DEPLOY_HOST    = "ubuntu@your-server"    // only if using remote deploy
   COMPOSE_DIR    = "/opt/myapp/deploy"     // where docker-compose.yml lives on remote
 }
-
-  }
 
   options { timestamps() }
 
