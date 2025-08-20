@@ -2,71 +2,111 @@ package main
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	mysqlDrv "github.com/go-sql-driver/mysql"
-	"github.com/joho/godotenv"
+	_ "github.com/go-sql-driver/mysql"
 )
 
-type User struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name" binding:"required"`
-	Email     string    `json:"email" binding:"required,email"`
-	CreatedAt time.Time `json:"created_at"`
+var db *sql.DB
+
+func getenv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 
-func main() {
-	_ = godotenv.Load()
-
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4&loc=Local",
+func initDB() {
+	var err error
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci",
 		getenv("DB_USER", "root"),
 		getenv("DB_PASS", "dubimin"),
 		getenv("DB_HOST", "127.0.0.1"),
 		getenv("DB_PORT", "3306"),
 		getenv("DB_NAME", "sample_db"),
 	)
-
-	db, err := sql.Open("mysql", dsn)
+	db, err = sql.Open("mysql", dsn)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("DB open error: %v", err)
 	}
-	defer db.Close()
-
-	if err := db.Ping(); err != nil {
-		log.Fatal("DB connection failed:", err)
+	for i := 0; i < 30; i++ {
+		if err = db.Ping(); err == nil {
+			log.Println("✅ Connected to DB")
+			return
+		}
+		log.Println("DB not ready, retrying...", err)
+		time.Sleep(2 * time.Second)
 	}
+	log.Fatalf("DB connection failed: %v", err)
+}
 
-	if err := ensureSchema(db); err != nil {
-		log.Fatal("ensure schema failed:", err)
-	}
+func ensureSchema() error {
+    dbname := getenv("DB_NAME", "sample_db")
+    if _, err := db.Exec("CREATE DATABASE IF NOT EXISTS " + dbname); err != nil {
+        return err
+    }
+    _, err := db.Exec(`
+        CREATE TABLE IF NOT EXISTS users (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          email VARCHAR(255) NOT NULL UNIQUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    `)
+    return err
+}
 
+
+type User struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+func main() {
+	initDB()
+	if err := ensureSchema(); err != nil {
+        log.Fatalf("schema setup failed: %v", err)
+    }
 	r := gin.Default()
-	r.Use(cors(getenv("CORS_ORIGIN", "*")))
+
+	r.Use(cors.New(cors.Config{
+		AllowOrigins: []string{getenv("CORS_ORIGIN", "*")},
+		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Accept"},
+	}))
 
 	api := r.Group("/api")
 	{
-		api.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+		api.GET("/health", func(c *gin.Context) {
+			if err := db.Ping(); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "down", "error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		})
 
 		api.GET("/users", func(c *gin.Context) {
-			rows, err := db.Query(`SELECT id, name, email, created_at FROM users ORDER BY id DESC`)
+			rows, err := db.Query("SELECT id, name, email FROM users ORDER BY id")
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
 			defer rows.Close()
-
 			var users []User
 			for rows.Next() {
 				var u User
-				if err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.CreatedAt); err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "scan failed"})
+				if err := rows.Scan(&u.ID, &u.Name, &u.Email); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 					return
 				}
 				users = append(users, u)
@@ -75,141 +115,105 @@ func main() {
 		})
 
 		api.GET("/users/:id", func(c *gin.Context) {
-			id := c.Param("id")
+			id, err := strconv.Atoi(c.Param("id"))
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+				return
+			}
 			var u User
-			err := db.QueryRow(`SELECT id, name, email, created_at FROM users WHERE id=?`, id).
-				Scan(&u.ID, &u.Name, &u.Email, &u.CreatedAt)
+			err = db.QueryRow("SELECT id, name, email FROM users WHERE id = ?", id).Scan(&u.ID, &u.Name, &u.Email)
 			if err == sql.ErrNoRows {
-				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 				return
 			}
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
 			c.JSON(http.StatusOK, u)
 		})
 
 		api.POST("/users", func(c *gin.Context) {
-			var in User
+			var in struct {
+				Name  string `json:"name"`
+				Email string `json:"email"`
+			}
 			if err := c.ShouldBindJSON(&in); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "name and valid email are required"})
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
-
-			// Normalize
-			in.Name = strings.TrimSpace(in.Name)
-			in.Email = strings.ToLower(strings.TrimSpace(in.Email))
-
-			res, err := db.Exec(`INSERT INTO users (name, email) VALUES (?, ?)`, in.Name, in.Email)
+			res, err := db.Exec("INSERT INTO users (name, email) VALUES (?, ?)", in.Name, in.Email)
 			if err != nil {
-				if isDuplicate(err) {
-					c.JSON(http.StatusConflict, gin.H{"error": "Email already exists"})
-					return
-				}
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "create failed"})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
-
 			id, _ := res.LastInsertId()
-			var out User
-			if err := db.QueryRow(`SELECT id, name, email, created_at FROM users WHERE id=?`, id).
-				Scan(&out.ID, &out.Name, &out.Email, &out.CreatedAt); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "fetch after create failed"})
-				return
-			}
-			c.JSON(http.StatusCreated, out)
+			c.JSON(http.StatusCreated, gin.H{"id": id})
 		})
 
 		api.PUT("/users/:id", func(c *gin.Context) {
-			id := c.Param("id")
-			var in User
-			if err := c.ShouldBindJSON(&in); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "name and valid email are required"})
-				return
-			}
-
-			// Normalize
-			in.Name = strings.TrimSpace(in.Name)
-			in.Email = strings.ToLower(strings.TrimSpace(in.Email))
-
-			_, err := db.Exec(`UPDATE users SET name=?, email=? WHERE id=?`, in.Name, in.Email, id)
+			id, err := strconv.Atoi(c.Param("id"))
 			if err != nil {
-				if isDuplicate(err) {
-					c.JSON(http.StatusConflict, gin.H{"error": "Email already exists"})
-					return
-				}
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "update failed"})
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 				return
 			}
-
-			var out User
-			if err := db.QueryRow(`SELECT id, name, email, created_at FROM users WHERE id=?`, id).
-				Scan(&out.ID, &out.Name, &out.Email, &out.CreatedAt); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "fetch after update failed"})
+			var in struct {
+				Name  string `json:"name"`
+				Email string `json:"email"`
+			}
+			if err := c.ShouldBindJSON(&in); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
-			c.JSON(http.StatusOK, out)
+			res, err := db.Exec("UPDATE users SET name = ?, email = ? WHERE id = ?", in.Name, in.Email, id)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			aff, _ := res.RowsAffected()
+			if aff == 0 {
+				c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+				return
+			}
+			c.Status(http.StatusNoContent)
 		})
 
 		api.DELETE("/users/:id", func(c *gin.Context) {
-			id := c.Param("id")
-			res, err := db.Exec(`DELETE FROM users WHERE id=?`, id)
+			id, err := strconv.Atoi(c.Param("id"))
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 				return
 			}
-			affected, _ := res.RowsAffected()
-			if affected == 0 {
-				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			res, err := db.Exec("DELETE FROM users WHERE id = ?", id)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			aff, _ := res.RowsAffected()
+			if aff == 0 {
+				c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 				return
 			}
 			c.Status(http.StatusNoContent)
 		})
 	}
 
-	addr := ":" + getenv("PORT", "8080")
-	log.Println("🚀 API listening on localhost", addr)
-	if err := r.Run(addr); err != nil {
-		log.Fatal(err)
-	}
-}
+	// Frontend
+	r.Static("/assets", "./frontend/assets")
+	r.GET("/favicon.ico", func(c *gin.Context) { c.File("./frontend/favicon.ico") })
 
-func getenv(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
-}
-
-func ensureSchema(db *sql.DB) error {
-	// Create table with case-insensitive unique index
-	_, err := db.Exec(
-		`
-			CREATE TABLE IF NOT EXISTS users (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			name VARCHAR(100) NOT NULL,
-			email VARCHAR(255) NOT NULL,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE KEY ux_users_email_lower ((LOWER(email)))
-		)`,)
-	return err
-}
-
-func cors(origin string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", origin)
-		c.Header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		if c.Request.Method == http.MethodOptions {
-			c.AbortWithStatus(http.StatusNoContent)
+	r.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		c.Next()
+		c.File(filepath.Clean("./frontend/index.html"))
+	})
+
+	port := getenv("PORT", "8080")
+	log.Printf("🚀 Server running on :%s", port)
+	if err := r.Run(":" + port); err != nil {
+		log.Fatalf("Server error: %v", err)
 	}
 }
 
-func isDuplicate(err error) bool {
-	var me *mysqlDrv.MySQLError
-	return errors.As(err, &me) && me.Number == 1062
-}

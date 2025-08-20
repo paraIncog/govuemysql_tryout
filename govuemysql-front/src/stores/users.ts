@@ -1,13 +1,17 @@
 import axios from "axios";
 import type { User } from "../types";
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || "http://localhost:8080/api",
-});
+const base =
+  import.meta.env.VITE_API_BASE ??
+  import.meta.env.VITE_API_BASE_URL ??
+  "/api";
+
+
+export const api = axios.create({ baseURL: base });
 
 export async function fetchUsers(): Promise<User[]> {
   const { data } = await api.get<User[]>("/users");
-  return data;
+  return Array.isArray(data) ? data : [];
 }
 
 export async function createUser(payload: Pick<User, "name" | "email">): Promise<User> {

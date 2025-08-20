@@ -5,7 +5,11 @@
 
     <section class="card">
       <h2>All Users</h2>
-      <p v-if="errList" class="error">{{ errList }}</p>
+      <div v-if="loading">Loading…</div>
+      <div v-else-if="error">{{ error }}</div>
+      <ul v-else>
+        <li v-for="u in users" :key="u.id">{{ u.name }} – {{ u.email }}</li>
+      </ul>
 
       <table class="users" v-if="users.length">
         <thead>
@@ -52,6 +56,9 @@ import { fetchUsers, updateUser, deleteUser } from "@/stores/users";
 import type { User } from "../types";
 
 const users = ref<User[]>([]);
+const loading = ref(true);
+const error = ref<string | null>(null);
+
 const errList = ref("");
 const editId = ref<number | null>(null);
 const editForm = ref({ name: "", email: "" });
@@ -80,14 +87,24 @@ async function saveEdit(id: number) {
 }
 
 async function remove(id: number) {
-  if (!confirm("Delete this user?")) return;
   try {
     await deleteUser(id);
-    await load();
-  } catch (e: any) { alert(e.message); }
+    users.value = users.value.filter(u => u.id !== id);
+  } catch (e: any) {
+    error.value = e.message ?? "Delete failed";
+  }
 }
 
-onMounted(load);
+onMounted(async () => {
+  try {
+    users.value = await fetchUsers();
+  } catch (e: any) {
+    error.value = e.message ?? "Failed to load users";
+    users.value = [];                   // <-- stay an array
+  } finally {
+    loading.value = false;
+  }
+});
 </script>
 
 <style scoped>
